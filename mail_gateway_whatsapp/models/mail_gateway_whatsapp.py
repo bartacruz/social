@@ -109,11 +109,28 @@ class MailGatewayWhatsappService(models.AbstractModel):
         # notify user that we have a failure
         notification.mail_message_id._notify_message_notification_update()
 
-    def _process_button(self,message,button):
-        if message.get('button'):
-            # Find template button action
-            button_text = message.get('button').get('text')
-            return button_text
+    def _process_button(self,author,message,button):
+        # If this is a response to a template button, we need to find which one and trigger the action
+        # Related message id should have the template_id used.
+        related_message_id = message.get("context", {}).get("id", False)
+        button = message.get('button')
+        button_text = button.get('text')
+        if button:
+            # Find template button
+            related_message = related_message_id and (
+                    self.env["mail.notification"]
+                    .search([
+                            ("gateway_channel_id", "=", message["from"]),
+                            ("gateway_message_id", "=", related_message_id),
+                        ]).mail_message_id
+                )
+                
+            if related_message and related_message.gateway_message_id:
+                template = related_message.whatsapp_template_id
+                button_id = template.button_ids.filtered(lambda b: b.button_text == button_text)
+                button_id.action_pressed(author,related_message)
+                
+            return button_text        
         
     def _process_update(self, chat, message, value):
         chat.ensure_one()
@@ -167,12 +184,12 @@ class MailGatewayWhatsappService(models.AbstractModel):
             )
         if message.get("contacts"):
             pass
+        author = self._get_author(chat.gateway_id, value)
         if message.get('button'):
-            button_text = self._process_button(message,message.get('button'))
+            button_text = self._process_button(author,message,message.get('button'))
             if button_text:
                 body += f'Button: {button_text}'
         if len(body) > 0 or attachments:
-            author = self._get_author(chat.gateway_id, value)
             if author._name == "mail.guest":
                 chat = chat.with_user(self.env.ref("base.public_user").id).with_context(
                     guest=author
@@ -305,6 +322,11 @@ class MailGatewayWhatsappService(models.AbstractModel):
                     }
                 )
         if message:
+            whatsapp_template_id = self.env.context.get("whatsapp_template_id")
+            if whatsapp_template_id:
+                record.mail_message_id.whatsapp_template_id.sudo().write({
+                    'whatsapp_template_id': whatsapp_template_id
+                })
             record.sudo().write(
                 {
                     "notification_status": "sent",
