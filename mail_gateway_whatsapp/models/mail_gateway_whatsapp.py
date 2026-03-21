@@ -109,6 +109,12 @@ class MailGatewayWhatsappService(models.AbstractModel):
         # notify user that we have a failure
         notification.mail_message_id._notify_message_notification_update()
 
+    def _process_button(self,message,button):
+        if message.get('button'):
+            # Find template button action
+            button_text = message.get('button').get('text')
+            return button_text
+        
     def _process_update(self, chat, message, value):
         chat.ensure_one()
         body = ""
@@ -161,6 +167,10 @@ class MailGatewayWhatsappService(models.AbstractModel):
             )
         if message.get("contacts"):
             pass
+        if message.get('button'):
+            button_text = self._process_button(message,message.get('button'))
+            if button_text:
+                body += f'Button: {button_text}'
         if len(body) > 0 or attachments:
             author = self._get_author(chat.gateway_id, value)
             if author._name == "mail.guest":
