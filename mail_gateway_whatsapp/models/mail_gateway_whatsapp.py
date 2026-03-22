@@ -324,7 +324,7 @@ class MailGatewayWhatsappService(models.AbstractModel):
         if message:
             whatsapp_template_id = self.env.context.get("whatsapp_template_id")
             if whatsapp_template_id:
-                record.mail_message_id.whatsapp_template_id.sudo().write({
+                record.mail_message_id.sudo().write({
                     'whatsapp_template_id': whatsapp_template_id
                 })
             record.sudo().write(
