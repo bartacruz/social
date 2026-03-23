@@ -717,3 +717,4 @@ class MailWhatsAppTemplateButton(models.Model):
 
     def action_pressed(self,author,message):
         self.ensure_one()
+        return _('Button: %s',self.name)

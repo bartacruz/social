@@ -109,18 +109,6 @@ class MailGatewayWhatsappService(models.AbstractModel):
         # notify user that we have a failure
         notification.mail_message_id._notify_message_notification_update()
 
-    def _process_button(self,author,related_message,button):
-        # If this is a response to a template button, we need to find which one and trigger the action
-        # Related message id should have the template_id used.
-        button_text = button.get('text')
-        _logger.info(f"Button pressed with text {button_text} for related  message {related_message} with template {related_message.whatsapp_template_id if related_message else 'N/A'}") 
-        template = related_message.whatsapp_template_id
-        _logger.warning("template %s buttons: %s",template,template.button_ids)
-        button_id = template.button_ids.filtered(lambda b: b.button_text == button_text)
-        button_id.action_pressed(author,related_message)
-        
-        return button_text        
-        
     def _process_update(self, chat, message, value):
         chat.ensure_one()
         body = ""
@@ -173,11 +161,12 @@ class MailGatewayWhatsappService(models.AbstractModel):
             )
         if message.get("contacts"):
             pass
+
+        # Extract author and related message before processing a button
         author = self._get_author(chat.gateway_id, value)
         
-        related_message = False
         related_message_id = message.get("context", {}).get("id", False)
-        
+        related_message = False
         if related_message_id:
             related_message = (
                 self.env["mail.notification"]
@@ -191,10 +180,15 @@ class MailGatewayWhatsappService(models.AbstractModel):
             )
             
         if message.get('button') and related_message:
-            _logger.info(f"Processing button with text {message['button'].get('text')} for message {message.get('id')}")
-            button_text = self._process_button(author,related_message,message.get('button'))
-            if button_text:
-                body += f'Button: {button_text}'
+            button_text = message.get('button').get('text')
+            _logger.info(f"Button pressed with text {button_text} for related  message {related_message} with template {related_message.whatsapp_template_id if related_message else 'N/A'}") 
+            template = related_message.whatsapp_template_id
+            _logger.warning("template %s buttons: %s",template,template.button_ids)
+            button_id = template.button_ids.filtered(lambda b: b.name == button_text)
+            button_response_text = button_id.action_pressed(author,related_message)
+            if button_response_text:
+                body += button_response_text
+        
         if len(body) > 0 or attachments:
             if author._name == "mail.guest":
                 chat = chat.with_user(self.env.ref("base.public_user").id).with_context(
