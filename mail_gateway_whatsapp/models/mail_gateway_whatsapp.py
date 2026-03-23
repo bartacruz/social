@@ -109,28 +109,17 @@ class MailGatewayWhatsappService(models.AbstractModel):
         # notify user that we have a failure
         notification.mail_message_id._notify_message_notification_update()
 
-    def _process_button(self,author,message,button):
+    def _process_button(self,author,related_message,button):
         # If this is a response to a template button, we need to find which one and trigger the action
         # Related message id should have the template_id used.
-        related_message_id = message.get("context", {}).get("id", False)
-        button = message.get('button')
         button_text = button.get('text')
-        if button:
-            # Find template button
-            related_message = related_message_id and (
-                    self.env["mail.notification"]
-                    .search([
-                            ("gateway_channel_id", "=", message["from"]),
-                            ("gateway_message_id", "=", related_message_id),
-                        ]).mail_message_id
-                )
-                
-            if related_message and related_message.gateway_message_id:
-                template = related_message.whatsapp_template_id
-                button_id = template.button_ids.filtered(lambda b: b.button_text == button_text)
-                button_id.action_pressed(author,related_message)
-                
-            return button_text        
+        _logger.info(f"Button pressed with text {button_text} for related  message {related_message} with template {related_message.whatsapp_template_id if related_message else 'N/A'}") 
+        template = related_message.whatsapp_template_id
+        _logger.warning("template %s buttons: %s",template,template.button_ids)
+        button_id = template.button_ids.filtered(lambda b: b.button_text == button_text)
+        button_id.action_pressed(author,related_message)
+        
+        return button_text        
         
     def _process_update(self, chat, message, value):
         chat.ensure_one()
@@ -185,8 +174,25 @@ class MailGatewayWhatsappService(models.AbstractModel):
         if message.get("contacts"):
             pass
         author = self._get_author(chat.gateway_id, value)
-        if message.get('button'):
-            button_text = self._process_button(author,message,message.get('button'))
+        
+        related_message = False
+        related_message_id = message.get("context", {}).get("id", False)
+        
+        if related_message_id:
+            related_message = (
+                self.env["mail.notification"]
+                .search(
+                    [
+                        ("gateway_channel_id", "=", chat.id),
+                        ("gateway_message_id", "=", related_message_id),
+                    ]
+                )
+                .mail_message_id
+            )
+            
+        if message.get('button') and related_message:
+            _logger.info(f"Processing button with text {message['button'].get('text')} for message {message.get('id')}")
+            button_text = self._process_button(author,related_message,message.get('button'))
             if button_text:
                 body += f'Button: {button_text}'
         if len(body) > 0 or attachments:
@@ -206,37 +212,26 @@ class MailGatewayWhatsappService(models.AbstractModel):
                 attachments=attachments,
             )
             self._post_process_message(new_message, chat)
-            related_message_id = message.get("context", {}).get("id", False)
-            if related_message_id:
-                related_message = (
-                    self.env["mail.notification"]
-                    .search(
-                        [
-                            ("gateway_channel_id", "=", chat.id),
-                            ("gateway_message_id", "=", related_message_id),
-                        ]
+            
+            if related_message and related_message.gateway_message_id:
+                new_related_message = (
+                    self.env[related_message.gateway_message_id.model]
+                    .browse(related_message.gateway_message_id.res_id)
+                    .message_post(
+                        body=body,
+                        author_id=author
+                        and author._name == "res.partner"
+                        and author.id,
+                        gateway_type="whatsapp",
+                        date=datetime.fromtimestamp(int(message["timestamp"])),
+                        # message_id=update.message.message_id,
+                        subtype_xmlid="mail.mt_comment",
+                        message_type="comment",
+                        attachments=attachments,
                     )
-                    .mail_message_id
                 )
-                if related_message and related_message.gateway_message_id:
-                    new_related_message = (
-                        self.env[related_message.gateway_message_id.model]
-                        .browse(related_message.gateway_message_id.res_id)
-                        .message_post(
-                            body=body,
-                            author_id=author
-                            and author._name == "res.partner"
-                            and author.id,
-                            gateway_type="whatsapp",
-                            date=datetime.fromtimestamp(int(message["timestamp"])),
-                            # message_id=update.message.message_id,
-                            subtype_xmlid="mail.mt_comment",
-                            message_type="comment",
-                            attachments=attachments,
-                        )
-                    )
-                    self._post_process_reply(related_message)
-                    new_message.gateway_message_id = new_related_message
+                self._post_process_reply(related_message)
+                new_message.gateway_message_id = new_related_message
 
     def _send(
         self,
