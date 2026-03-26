@@ -161,6 +161,11 @@ class MailGatewayWhatsappService(models.AbstractModel):
             )
         if message.get("contacts"):
             pass
+    
+        if message.get('button'):
+            button_text = message.get('button').get('text')
+            body += button_text
+            
         if len(body) > 0 or attachments:
             author = self._get_author(chat.gateway_id, value)
             if author._name == "mail.guest":
@@ -193,6 +198,14 @@ class MailGatewayWhatsappService(models.AbstractModel):
                 parent_id=related_message and related_message.id,
             )
             self._post_process_message(new_message, chat)
+            if related_message and message.get('button'):
+                # Find the button and call the action.
+                button_text = message.get('button').get('text')
+                _logger.info(f"Button pressed with text {button_text} for related  message {related_message} with template {related_message.whatsapp_template_id if related_message else 'N/A'}") 
+                template = related_message.whatsapp_template_id
+                _logger.warning("template %s buttons: %s",template,template.button_ids)
+                button_id = template.button_ids.filtered(lambda b: b.name == button_text)
+                button_id.action_pressed(author,related_message)
             if related_message and related_message.gateway_message_id:
                 new_related_message = (
                     self.env[related_message.gateway_message_id.model]
@@ -297,6 +310,11 @@ class MailGatewayWhatsappService(models.AbstractModel):
                     }
                 )
         if message:
+            whatsapp_template_id = self.env.context.get("whatsapp_template_id")
+            if whatsapp_template_id:
+                record.mail_message_id.sudo().write({
+                    'whatsapp_template_id': whatsapp_template_id
+                })
             record.sudo().write(
                 {
                     "notification_status": "sent",

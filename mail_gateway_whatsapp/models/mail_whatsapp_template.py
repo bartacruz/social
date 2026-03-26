@@ -713,3 +713,7 @@ class MailWhatsAppTemplateButton(models.Model):
                 raise ValidationError(
                     _("The placeholder for a button can only be {{1}}.")
                 )
+
+    def action_pressed(self,author,message):
+        self.ensure_one()
+        return _('Button: %s',self.name)
