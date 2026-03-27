@@ -1,4 +1,5 @@
 from . import mail_gateway
+from . import mail_message
 from . import mail_thread
 from . import mail_gateway_whatsapp
 from . import discuss_channel
